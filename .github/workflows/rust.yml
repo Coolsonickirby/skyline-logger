@@ -1,24 +1,102 @@
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+name: Rust
 
-env:
-  CARGO_TERM_COLOR: always
+on: [push]
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [stable, nightly]
-
+  build_linux:
+    runs-on: ubuntu-latest
     steps:
-    - uses: hecrj/setup-rust-action@v1
+    - uses: actions/checkout@v1
+    - name: Build Linux
+      run:
+        cargo build --release --target x86_64-unknown-linux-gnu
+    - name: Upload Linux Build
+      uses: actions/upload-artifact@v1
       with:
-        rust-version: ${{ matrix.rust }}
-    - uses: actions/checkout@master
-    - name: Run tests
-      run: cargo test --verbose
+        name: linux_build
+        path: target/x86_64-unknown-linux-gnu/release/test
+  build_windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Build Windows
+        run:
+          cargo build --release --target x86_64-pc-windows-msvc
+      - name: Upload Windows Build
+        uses: actions/upload-artifact@v1
+        with:
+          name: windows_build
+          path: target/x86_64-pc-windows-msvc/release/test.exe
+  build_macOS:
+    runs-on: macOS-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Install stable macOS toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: stable
+            override: true
+      - name: Build MacOS
+        run:
+         cargo build --release --target x86_64-apple-darwin
+      - name: Upload MacOS Build
+        uses: actions/upload-artifact@v1
+        with:
+          name: macOS_build
+          path: target/x86_64-apple-darwin/release/test
+  upload_release:
+    runs-on: ubuntu-latest
+    needs: [build_linux, build_windows, build_macOS]
+    steps:
+      - name: Download Linux Build
+        uses: actions/download-artifact@v1
+        with:
+          name: linux_build
+      - name: Download Windows Build
+        uses: actions/download-artifact@v1
+        with:
+          name: windows_build
+      - name: Download MacOS Build
+        uses: actions/download-artifact@v1
+        with:
+          name: macOS_build
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: latest_commit
+          release_name: Current Commit ($GITHUB_SHA)
+          draft: false
+          prerelease: true
+      - name: Upload Windows
+        id: upload-windows-release-asset 
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          asset_path: ./windows_build/test.exe
+          asset_name: test.exe
+          asset_content_type: application/octet-stream
+      - name: Upload Linux
+        id: upload-linux-release-asset 
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          asset_path: ./linux_build/test
+          asset_name: test
+          asset_content_type: application/octet-stream
+      - name: Upload Linux
+        id: upload-macos-release-asset 
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          asset_path: ./macOS_build/test
+          asset_name: test_mac
+          asset_content_type: application/octet-stream
